@@ -32,38 +32,49 @@
 
 ## 💻 CLI Quickstart & Usage
 
-### 1. Guided Interactive Mode
+### 1. Gaussian Mechanism
 ```bash
-python cli.py
+python cli.py gaussian --value 100.0 --sensitivity 1.0 --epsilon 1.0 --delta 1e-5
 ```
 
-### 2. Direct Parameterized Evaluation
+### 2. Laplace Mechanism
 ```bash
-python cli.py --value <value> --sensitivity <value> --epsilon <value> --delta <value>
+python cli.py laplace --value 50.0 --sensitivity 1.0 --epsilon 1.0
 ```
 
-### Parameter Reference
-- `--value`: Specifies input measurement or parameter value.
-- `--sensitivity`: Specifies input measurement or parameter value.
-- `--epsilon`: Specifies input measurement or parameter value.
-- `--delta`: Specifies input measurement or parameter value.
-- `--mechanism`: Specifies input measurement or parameter value.
-- `--type`: Specifies input measurement or parameter value.
-- `--k`: Specifies input measurement or parameter value.
-- `--delta-prime`: Specifies input measurement or parameter value.
-- `--alphas`: Specifies input measurement or parameter value.
-- `--sigma`: Specifies input measurement or parameter value.
+### 3. Noise Scale Calculation
+```bash
+python cli.py noise-scale --mechanism gaussian --sensitivity 1.0 --epsilon 1.0 --delta 1e-5
+```
 
-### Input Data Schema
+### 4. Privacy Budget Composition
+```bash
+python cli.py composition --type basic --epsilon 0.1 --k 10
+python cli.py composition --type advanced --epsilon 0.1 --delta 1e-6 --k 10 --delta-prime 1e-5
+python cli.py composition --type rdp --epsilon 1.0 --delta 1e-5 --k 100 --sigma 1.5
+```
 
-| Field | Description | Requirement |
-|:------|:------------|:------------|
-| `task_id` | Parameter / observation metric | Required |
-| `target_identifier` | Parameter / observation metric | Required |
-| `primary_metric` | Parameter / observation metric | Required |
-| `secondary_metric` | Parameter / observation metric | Required |
-| `is_critical_flag` | Parameter / observation metric | Required |
-| `status_descriptor` | Parameter / observation metric | Required |
+### 5. Sensitivity Analysis
+```bash
+python cli.py sensitivity --query count
+python cli.py sensitivity --query sum --lower 0 --upper 100
+python cli.py sensitivity --query mean --lower 0 --upper 100 --n 50
+```
+
+### 6. DP-SGD Step
+```bash
+python cli.py dp-sgd --clip-norm 1.0 --epsilon 1.0 --delta 1e-5 --batch-size 32 --dim 10
+```
+
+### 7. Moments Accountant
+```bash
+python cli.py accountant --sigma 1.5 --steps 1000 --delta 1e-5
+```
+
+### 8. Privacy Budget Tracking
+```bash
+python cli.py budget --total-epsilon 10.0 --total-delta 1e-5 --spend-epsilon 1.0 --description "Query 1"
+```
 
 ---
 
@@ -77,6 +88,27 @@ python cli.py --value <value> --sensitivity <value> --epsilon <value> --delta <v
 
 ---
 
+## 📦 Installation
+
+```bash
+# Core library (no external dependencies needed for engine)
+pip install -e .
+
+# With web API support
+pip install -e ".[web]"
+
+# With development dependencies
+pip install -e ".[dev]"
+```
+
+Set the audit secret key for persistent HMAC integrity:
+
+```bash
+export AUDIT_SECRET_KEY="your-secure-random-key-here"
+```
+
+---
+
 ## 🧪 Testing & Verification
 
 Run the automated test suite:
@@ -85,10 +117,16 @@ Run the automated test suite:
 pytest -v
 ```
 
-Execute high-throughput batch simulation benchmarks:
+Run with coverage:
 
 ```bash
-python simulator.py --tasks 1000 --concurrency 8
+pytest -v --tb=short
+```
+
+Execute the simulation benchmark:
+
+```bash
+python simulator.py 1000
 ```
 
 ---
@@ -97,5 +135,11 @@ python simulator.py --tasks 1000 --concurrency 8
 
 ```bash
 docker build -t differential-privacy-dp-sgd .
-docker run -p 8000:8000 differential-privacy-dp-sgd
+docker run -p 8000:8000 -e AUDIT_SECRET_KEY=your-secret differential-privacy-dp-sgd
+```
+
+Or with Docker Compose:
+
+```bash
+AUDIT_SECRET_KEY=your-secret docker compose up
 ```

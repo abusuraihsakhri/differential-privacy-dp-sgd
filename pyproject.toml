@@ -17,7 +17,21 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 requires-python = ">=3.9"
-dependencies = []
+dependencies = [
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+web = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+]
+dev = [
+    "pytest>=8.0",
+    "pydantic>=2.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+]
 
 [project.scripts]
 differential-privacy-dp-sgd = "diff_privacy_engine.cli:main"

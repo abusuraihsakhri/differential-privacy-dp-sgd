@@ -476,3 +476,79 @@ def run_laplace_query(value: float, sensitivity: float, epsilon: float) -> Dict[
         "epsilon": epsilon,
         "sensitivity": sensitivity,
     }
+
+
+# ---------------------------------------------------------------------------
+# Frontier Domain Engine (Threshold-based evaluation for agent auditing)
+# ---------------------------------------------------------------------------
+
+class FrontierDomainEngine:
+    """
+    Threshold-based evaluation engine used by DP agent sub-auditors.
+    Each static method returns a dict with summary/details/remediation when
+    a threshold is breached, or None when the value is within nominal bounds.
+    """
+
+    PRIMARY_THRESHOLD = 25.0
+    SECONDARY_THRESHOLD = 12.0
+    DISCORDANT_KEYWORDS = {"DISCORDANT", "ANOMALY", "MUTANT", "VIOLATION", "FAIL", "REJECT"}
+
+    @staticmethod
+    def evaluate_primary_parameter(primary_metric: float) -> Optional[Dict[str, str]]:
+        """
+        Evaluate primary parameter against reference threshold.
+        Returns alert dict if threshold exceeded, None otherwise.
+        """
+        if primary_metric > FrontierDomainEngine.PRIMARY_THRESHOLD:
+            return {
+                "summary": "Primary Parameter Threshold Exceeded",
+                "details": (
+                    f"Primary metric ({primary_metric:.2f}) exceeds upper reference "
+                    f"limit ({FrontierDomainEngine.PRIMARY_THRESHOLD:.2f})."
+                ),
+                "remediation": (
+                    "Initiate recalibration workflow and review secondary parameters "
+                    "under Differential Privacy (Mironov Renyi DP) specifications."
+                ),
+            }
+        return None
+
+    @staticmethod
+    def evaluate_secondary_kinetics(secondary_metric: float, is_critical_flag: bool) -> Optional[Dict[str, str]]:
+        """
+        Evaluate secondary kinetics against safety boundary.
+        Returns alert dict if threshold exceeded or critical flag set, None otherwise.
+        """
+        if is_critical_flag or secondary_metric > FrontierDomainEngine.SECONDARY_THRESHOLD:
+            return {
+                "summary": "Critical Safety Interlock Triggered",
+                "details": (
+                    f"CriticalFlag={is_critical_flag} with secondary index "
+                    f"{secondary_metric:.2f} exceeding safety boundary "
+                    f"({FrontierDomainEngine.SECONDARY_THRESHOLD:.2f})."
+                ),
+                "remediation": (
+                    "Execute immediate closed-loop escalation and notify attending supervisor."
+                ),
+            }
+        return None
+
+    @staticmethod
+    def audit_specification_conformance(status_descriptor: str, attributes: Dict[str, Any]) -> Optional[Dict[str, str]]:
+        """
+        Audit status descriptor for protocol conformance.
+        Returns alert dict if discordant keywords detected, None otherwise.
+        """
+        desc_upper = str(status_descriptor).upper()
+        if any(kw in desc_upper for kw in FrontierDomainEngine.DISCORDANT_KEYWORDS):
+            return {
+                "summary": "Protocol Conformance Discordance Detected",
+                "details": (
+                    f"Descriptor '{status_descriptor}' indicates discordance with "
+                    f"Differential Privacy (Mironov Renyi DP) specifications."
+                ),
+                "remediation": (
+                    "Re-evaluate input parameters or rerun secondary confirmation analysis."
+                ),
+            }
+        return None
