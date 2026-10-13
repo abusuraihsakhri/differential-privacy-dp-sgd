@@ -33,3 +33,23 @@ jobs:
           path: _site
       - id: deployment
         uses: actions/deploy-pages@v4
+      - name: Verify published HTML and Python assets
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          test -n "$PAGE_URL"
+          base="${PAGE_URL%/}/"
+          for attempt in $(seq 1 18); do
+            if curl -fsSL --max-time 20 "${base}" -o /tmp/dp-pages-index.html \
+              && curl -fsSL --max-time 20 "${base}engine.py" -o /tmp/dp-pages-engine.py \
+              && grep -q "Differential Privacy &amp; DP-SGD" /tmp/dp-pages-index.html \
+              && grep -q "class MomentsAccountant" /tmp/dp-pages-engine.py; then
+              echo "Pages HTML and Python engine verified: ${base}"
+              exit 0
+            fi
+            echo "Pages not ready (attempt ${attempt}/18)"
+            sleep 5
+          done
+          echo "::error::Unable to verify the published calculator and engine"
+          exit 1
