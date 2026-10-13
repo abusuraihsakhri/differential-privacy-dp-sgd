@@ -53,3 +53,53 @@ jobs:
           done
           echo "::error::Unable to verify the published calculator and engine"
           exit 1
+      - name: Exercise Python calculations in a real browser
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          python -m pip install --quiet playwright
+          python -m playwright install --with-deps chromium
+          python - <<'PY'
+          import json
+          import os
+          from playwright.sync_api import sync_playwright
+
+          url = os.environ["PAGE_URL"]
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True)
+              page = browser.new_page(viewport={"width": 1280, "height": 900})
+              errors = []
+              page.on("pageerror", lambda exc: errors.append(str(exc)))
+              page.goto(url, wait_until="domcontentloaded", timeout=60000)
+              page.wait_for_function(
+                  "() => document.querySelector('#runtime').textContent.includes('Python ready')",
+                  timeout=120000
+              )
+
+              def calculate():
+                  page.locator("#calculate").click()
+                  page.wait_for_function(
+                      "() => { try { return JSON.parse(document.querySelector('#result').textContent) !== null; } catch { return false; } }",
+                      timeout=30000
+                  )
+                  return json.loads(page.locator("#result").inner_text())
+
+              result = calculate()
+              assert "noisy_value" in result and "true_value" not in result, result
+
+              page.locator("#mode").select_option("composition")
+              result = calculate()
+              assert "epsilon_total" in result and "delta_total" in result, result
+
+              page.locator("#mode").select_option("gradient")
+              result = calculate()
+              assert len(result["private_average_gradient"]) == 2, result
+
+              page.locator("#mode").select_option("accountant")
+              result = calculate()
+              assert result["epsilon_upper_bound"] > 0, result
+
+              assert not errors, errors
+              browser.close()
+          print("Browser Python runtime and all four calculator modes passed")
+          PY
