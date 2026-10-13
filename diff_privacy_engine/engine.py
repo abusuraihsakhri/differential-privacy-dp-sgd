@@ -176,6 +176,8 @@ def advanced_composition(epsilon_per_mechanism: float, delta_per_mechanism: floa
     epsilon_total = (math.sqrt(2.0 * k * math.log(1.0 / delta_prime)) * eps_i
                      + k * eps_i * (math.exp(eps_i) - 1.0))
     delta_total = k * delta_i + delta_prime
+    if delta_total >= 1:
+        raise ValueError("composed delta must be < 1")
 
     return epsilon_total, delta_total
 

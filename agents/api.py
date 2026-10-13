@@ -3,7 +3,9 @@ FastAPI REST API Server for Differential Privacy Dp Sgd.
 """
 from typing import Dict, Any, List
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+import os
+import hmac
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from .base import AuditLogger, PHIGuard, SecurityException
@@ -66,5 +68,11 @@ def api_chat(req: ChatRequest):
 
 
 @app.get("/api/audit/logs")
-def api_audit_logs():
+def api_audit_logs(authorization: str = Header(default="")):
+    # Audit metadata can disclose operational details; opt in explicitly.
+    token = os.getenv("AUDIT_API_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503, detail="Audit log API is disabled")
+    if not hmac.compare_digest(authorization, "Bearer " + token):
+        raise HTTPException(status_code=403, detail="Invalid audit API token")
     return {"audit_trail": AuditLogger.get_trail(), "verified": AuditLogger.verify_integrity()}
