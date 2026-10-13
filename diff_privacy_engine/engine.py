@@ -5,9 +5,22 @@ privacy budget composition (basic, advanced, RDP), DP-SGD, and sensitivity calcu
 Uses only Python stdlib.
 """
 import math
-import random
-import hashlib
+from random import SystemRandom
 from typing import List, Dict, Any, Optional, Tuple
+
+# OS-backed entropy; seeding the process-global pseudo-random generator must not
+# make released noise reproducible. Floating-point DP remains best-effort.
+_rng = SystemRandom()
+
+
+def _finite_positive(value: float, name: str) -> None:
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be finite and positive")
+
+
+def _finite_nonnegative(value: float, name: str) -> None:
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"{name} must be finite and non-negative")
 
 
 # ---------------------------------------------------------------------------
@@ -21,6 +34,8 @@ def count_sensitivity() -> float:
 
 def sum_sensitivity(lower: float, upper: float) -> float:
     """L2 sensitivity of a sum query with bounded data in [lower, upper]."""
+    if not math.isfinite(lower) or not math.isfinite(upper) or lower > upper:
+        raise ValueError("bounds must be finite and lower <= upper")
     return max(abs(lower), abs(upper))
 
 
@@ -28,7 +43,10 @@ def mean_sensitivity(lower: float, upper: float, n: int) -> float:
     """L2 sensitivity of a mean query over n records with values in [lower, upper]."""
     if n <= 0:
         raise ValueError("n must be positive")
-    return (abs(upper) + abs(lower)) / n
+    if not math.isfinite(lower) or not math.isfinite(upper) or lower > upper:
+        raise ValueError("bounds must be finite and lower <= upper")
+    # Fixed-size datasets with substitution adjacency.
+    return (upper - lower) / n
 
 
 def histogram_sensitivity() -> float:
@@ -45,21 +63,27 @@ def gaussian_noise_scale(sensitivity: float, epsilon: float, delta: float) -> fl
     Compute sigma for the Gaussian mechanism.
     sigma = sensitivity * sqrt(2 * ln(1.25 / delta)) / epsilon
     """
-    if epsilon <= 0:
-        raise ValueError("epsilon must be positive")
-    if delta <= 0 or delta >= 1:
-        raise ValueError("delta must be in (0, 1)")
-    return sensitivity * math.sqrt(2.0 * math.log(1.25 / delta)) / epsilon
+    _finite_nonnegative(sensitivity, "sensitivity")
+    _finite_positive(epsilon, "epsilon")
+    if not math.isfinite(delta) or delta <= 0 or delta >= 1:
+        raise ValueError("delta must be finite and in (0, 1)")
+    # The classical 1.25/delta calibration is proved for 0 < epsilon <= 1.
+    # For larger epsilon, use the conservative Gaussian RDP conversion bound.
+    if epsilon <= 1:
+        return sensitivity * math.sqrt(2.0 * math.log(1.25 / delta)) / epsilon
+    log_inverse_delta = math.log(1.0 / delta)
+    return sensitivity * (math.sqrt(2 * log_inverse_delta + 2 * epsilon)
+                          + math.sqrt(2 * log_inverse_delta)) / (2 * epsilon)
 
 
 def gaussian_mechanism(value: float, sensitivity: float, epsilon: float, delta: float) -> float:
     """Apply Gaussian mechanism: return value + N(0, sigma^2)."""
     sigma = gaussian_noise_scale(sensitivity, epsilon, delta)
     # Box-Muller transform for generating normal random variable
-    u1 = random.random()
-    u2 = random.random()
+    u1 = _rng.random()
+    u2 = _rng.random()
     while u1 == 0:
-        u1 = random.random()
+        u1 = _rng.random()
     z = math.sqrt(-2.0 * math.log(u1)) * math.cos(2.0 * math.pi * u2)
     return value + sigma * z
 
@@ -70,10 +94,10 @@ def gaussian_mechanism_vector(values: List[float], sensitivity: float,
     sigma = gaussian_noise_scale(sensitivity, epsilon, delta)
     result = []
     for v in values:
-        u1 = random.random()
-        u2 = random.random()
+        u1 = _rng.random()
+        u2 = _rng.random()
         while u1 == 0:
-            u1 = random.random()
+            u1 = _rng.random()
         z = math.sqrt(-2.0 * math.log(u1)) * math.cos(2.0 * math.pi * u2)
         result.append(v + sigma * z)
     return result
@@ -88,14 +112,14 @@ def laplace_noise_scale(sensitivity: float, epsilon: float) -> float:
     Compute b (scale) for the Laplace mechanism.
     b = sensitivity / epsilon
     """
-    if epsilon <= 0:
-        raise ValueError("epsilon must be positive")
+    _finite_nonnegative(sensitivity, "sensitivity")
+    _finite_positive(epsilon, "epsilon")
     return sensitivity / epsilon
 
 
 def _sample_laplace(b: float) -> float:
     """Sample from Laplace(0, b) using inverse CDF."""
-    u = random.random() - 0.5
+    u = _rng.random() - 0.5
     # Avoid log(0)
     if u == 0:
         return 0.0
@@ -125,8 +149,7 @@ def basic_composition(epsilon_per_mechanism: float, k: int) -> float:
     k mechanisms each with (epsilon_i, delta_i) ->
     total epsilon = sum(epsilon_i), total delta = sum(delta_i)
     """
-    if epsilon_per_mechanism < 0:
-        raise ValueError("epsilon must be non-negative")
+    _finite_nonnegative(epsilon_per_mechanism, "epsilon")
     if k < 0:
         raise ValueError("k must be non-negative")
     return k * epsilon_per_mechanism
@@ -140,10 +163,8 @@ def advanced_composition(epsilon_per_mechanism: float, delta_per_mechanism: floa
     epsilon_total = sqrt(2 * k * ln(1/delta')) * epsilon_i + k * epsilon_i * (e^epsilon_i - 1)
     delta_total = k * delta_i + delta'
     """
-    if epsilon_per_mechanism < 0:
-        raise ValueError("epsilon must be non-negative")
-    if delta_per_mechanism < 0:
-        raise ValueError("delta must be non-negative")
+    _finite_nonnegative(epsilon_per_mechanism, "epsilon")
+    _finite_nonnegative(delta_per_mechanism, "delta")
     if k < 0:
         raise ValueError("k must be non-negative")
     if delta_prime <= 0 or delta_prime >= 1:
@@ -168,10 +189,10 @@ def rdp_epsilon(alpha: float, sigma: float, sensitivity: float = 1.0) -> float:
     Compute RDP epsilon for the Gaussian mechanism at order alpha.
     RDP epsilon = sensitivity^2 / (2 * sigma^2) * alpha
     """
-    if alpha <= 1.0:
-        raise ValueError("alpha must be > 1 for RDP")
-    if sigma <= 0:
-        raise ValueError("sigma must be positive")
+    if not math.isfinite(alpha) or alpha <= 1.0:
+        raise ValueError("alpha must be finite and > 1 for RDP")
+    _finite_positive(sigma, "sigma")
+    _finite_nonnegative(sensitivity, "sensitivity")
     return (sensitivity ** 2) / (2.0 * sigma ** 2) * alpha
 
 
@@ -186,10 +207,13 @@ def rdp_to_dp(rdp_epsilons: Dict[float, float], delta: float) -> float:
 
     best_epsilon = float('inf')
     for alpha, rdp_eps in rdp_epsilons.items():
-        if alpha <= 1.0:
-            continue
+        if not math.isfinite(alpha) or alpha <= 1.0:
+            raise ValueError("RDP orders must be finite and > 1")
+        _finite_nonnegative(rdp_eps, "RDP epsilon")
         eps = rdp_eps + math.log(1.0 / delta) / (alpha - 1.0)
         best_epsilon = min(best_epsilon, eps)
+    if not rdp_epsilons:
+        raise ValueError("at least one valid RDP order is required")
     return best_epsilon
 
 
@@ -199,8 +223,8 @@ def rdp_composition_gaussian(sigma: float, k: int, alphas: List[float],
     RDP composition for k applications of Gaussian mechanism with scale sigma.
     RDP composes linearly: total_rdp_epsilon = k * per_mechanism_rdp_epsilon
     """
-    if sigma <= 0:
-        raise ValueError("sigma must be positive")
+    _finite_positive(sigma, "sigma")
+    _finite_nonnegative(sensitivity, "sensitivity")
     if k < 0:
         raise ValueError("k must be non-negative")
 
@@ -221,10 +245,20 @@ def find_sigma_for_rdp(target_epsilon: float, delta: float, k: int,
     with that sigma satisfy (epsilon, delta)-DP.
     Uses binary search over sigma.
     """
+    _finite_positive(target_epsilon, "target_epsilon")
+    if not math.isfinite(delta) or not 0 < delta < 1:
+        raise ValueError("delta must be in (0, 1)")
+    if k < 0:
+        raise ValueError("k must be non-negative")
     if alphas is None:
         alphas = [1.0 + x / 10.0 for x in range(1, 100)]  # 1.1 to 10.0
-
-    lo, hi = 0.01, 1000.0
+    if not alphas:
+        raise ValueError("alphas must not be empty")
+    lo, hi = 0.0, 1.0
+    while rdp_to_dp(rdp_composition_gaussian(hi, k, alphas, sensitivity), delta) > target_epsilon:
+        hi *= 2
+        if not math.isfinite(hi):
+            raise ValueError("cannot calibrate finite sigma for these parameters")
     for _ in range(100):  # binary search iterations
         mid = (lo + hi) / 2.0
         rdp_eps = rdp_composition_gaussian(mid, k, alphas, sensitivity)
@@ -245,10 +279,10 @@ def clip_gradient(gradient: List[float], clip_norm: float) -> List[float]:
     Per-sample gradient clipping: clip gradient to have L2 norm <= clip_norm.
     If ||g||_2 > C, scale to C * g / ||g||_2.
     """
-    if clip_norm <= 0:
-        raise ValueError("clip_norm must be positive")
-
-    norm = math.sqrt(sum(g ** 2 for g in gradient))
+    _finite_positive(clip_norm, "clip_norm")
+    if not gradient or any(not math.isfinite(g) for g in gradient):
+        raise ValueError("gradient must be non-empty and finite")
+    norm = math.hypot(*gradient)
     if norm <= clip_norm:
         return list(gradient)
     scale = clip_norm / norm
@@ -266,6 +300,8 @@ def aggregate_gradients(gradients: List[List[float]]) -> List[float]:
         raise ValueError("Empty gradient list")
     n = len(gradients)
     dim = len(gradients[0])
+    if not dim or any(len(g) != dim or any(not math.isfinite(x) for x in g) for g in gradients):
+        raise ValueError("gradients must be non-empty, finite, and equally sized")
     result = [0.0] * dim
     for g in gradients:
         for i in range(dim):
@@ -279,14 +315,12 @@ def dp_sgd_noise(clip_norm: float, epsilon: float, delta: float, batch_size: int
     sigma = clip_norm * sqrt(2 * ln(1.25 / delta)) / epsilon
     For mini-batch, noise is divided by batch_size.
     """
-    if clip_norm <= 0:
-        raise ValueError("clip_norm must be positive")
-    if epsilon <= 0:
-        raise ValueError("epsilon must be positive")
-    if delta <= 0 or delta >= 1:
-        raise ValueError("delta must be in (0, 1)")
-
-    return clip_norm * math.sqrt(2.0 * math.log(1.25 / delta)) / epsilon
+    _finite_positive(clip_norm, "clip_norm")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    # Returns a dimensionless multiplier, not an absolute standard deviation.
+    # The step adds noise with stddev = multiplier * clip_norm / batch_size.
+    return gaussian_noise_scale(1.0, epsilon, delta)
 
 
 def dp_sgd_step(gradients: List[List[float]], clip_norm: float,
@@ -297,6 +331,7 @@ def dp_sgd_step(gradients: List[List[float]], clip_norm: float,
     2. Aggregate (average)
     3. Add calibrated Gaussian noise
     """
+    _finite_positive(noise_multiplier, "noise_multiplier")
     clipped = clip_gradients(gradients, clip_norm)
     aggregated = aggregate_gradients(clipped)
 
@@ -305,10 +340,10 @@ def dp_sgd_step(gradients: List[List[float]], clip_norm: float,
     sigma = noise_multiplier * clip_norm / n
     noisy = []
     for g in aggregated:
-        u1 = random.random()
-        u2 = random.random()
+        u1 = _rng.random()
+        u2 = _rng.random()
         while u1 == 0:
-            u1 = random.random()
+            u1 = _rng.random()
         z = math.sqrt(-2.0 * math.log(u1)) * math.cos(2.0 * math.pi * u2)
         noisy.append(g + sigma * z)
     return noisy
@@ -319,62 +354,46 @@ def dp_sgd_step(gradients: List[List[float]], clip_norm: float,
 # ---------------------------------------------------------------------------
 
 class MomentsAccountant:
-    """
-    Privacy accountant using the moments accountant method
-    (Abadi et al., 2016) for tracking cumulative privacy loss in DP-SGD.
+    """Gaussian RDP accountant for full-batch steps (no subsampling amplification).
+
+    The supplied sigma is the dimensionless noise multiplier (noise stddev
+    divided by clipped gradient L2 norm), not an absolute gradient stddev.
     """
 
     def __init__(self, target_delta: float):
-        if target_delta <= 0 or target_delta >= 1:
+        if not math.isfinite(target_delta) or not 0 < target_delta < 1:
             raise ValueError("target_delta must be in (0, 1)")
         self.target_delta = target_delta
-        self.log_moments: List[float] = []  # accumulated log moments
+        self.log_moments: List[float] = []  # Stored RDP epsilon at each order.
+        self._orders: Optional[Tuple[float, ...]] = None
         self.steps = 0
-
-    def _compute_log_moment_single(self, sigma: float, alpha: float) -> float:
-        """
-        Compute log E[exp(alpha * loss)] for a single step of Gaussian mechanism.
-        Using the bound: log_moment <= alpha * (alpha + 1) / (2 * sigma^2)
-        (This is the simplified moments bound from Abadi et al.)
-        """
-        return alpha * (alpha + 1.0) / (2.0 * sigma ** 2)
 
     def accumulate(self, sigma: float, num_steps: int = 1,
                    alphas: Optional[List[float]] = None):
-        """Accumulate privacy cost over num_steps iterations."""
-        if alphas is None:
-            alphas = [1.0 + x / 10.0 for x in range(1, 100)]
-
+        """Add Gaussian steps using the non-subsampled RDP composition bound."""
+        _finite_positive(sigma, "sigma")
+        if not isinstance(num_steps, int) or num_steps < 0:
+            raise ValueError("num_steps must be a non-negative integer")
+        orders = tuple(alphas if alphas is not None else
+                       [1.0 + x / 10.0 for x in range(1, 100)])
+        if not orders or any(not math.isfinite(a) or a <= 1 for a in orders):
+            raise ValueError("alphas must be finite and > 1")
+        if self._orders is not None and orders != self._orders:
+            raise ValueError("RDP orders cannot change after accumulation")
+        self._orders = orders
         if not self.log_moments:
-            self.log_moments = [0.0] * len(alphas)
-
-        for _ in range(num_steps):
-            for i, alpha in enumerate(alphas):
-                if alpha <= 1.0:
-                    continue
-                self.log_moments[i] += self._compute_log_moment_single(sigma, alpha)
+            self.log_moments = [0.0] * len(orders)
+        for i, alpha in enumerate(orders):
+            self.log_moments[i] += num_steps * alpha / (2 * sigma * sigma)
         self.steps += num_steps
 
     def get_privacy_spent(self, alphas: Optional[List[float]] = None) -> Tuple[float, float]:
-        """
-        Compute the current (epsilon, delta) privacy spend.
-        epsilon = min_alpha { log_moment(alpha) - ln(delta) / (alpha - 1) }
-        """
-        if alphas is None:
-            alphas = [1.0 + x / 10.0 for x in range(1, 100)]
-
-        if not self.log_moments:
+        if self.steps == 0:
             return 0.0, self.target_delta
-
-        best_epsilon = float('inf')
-        for i, alpha in enumerate(alphas):
-            if alpha <= 1.0:
-                continue
-            if i < len(self.log_moments):
-                eps = self.log_moments[i] + math.log(1.0 / self.target_delta) / (alpha - 1.0)
-                best_epsilon = min(best_epsilon, eps)
-
-        return best_epsilon, self.target_delta
+        if alphas is not None and tuple(alphas) != self._orders:
+            raise ValueError("RDP orders must match those used in accumulate")
+        return rdp_to_dp(dict(zip(self._orders, self.log_moments)),
+                         self.target_delta), self.target_delta
 
 
 # ---------------------------------------------------------------------------
@@ -408,11 +427,9 @@ class PrivacyBudgetCalculator:
         return self.spent_epsilon >= self.total_epsilon
 
     def spend(self, epsilon: float, delta: float = 0.0, description: str = "") -> bool:
-        """
-        Spend privacy budget. Returns True if the spend is within budget.
-        """
-        if epsilon < 0 or delta < 0:
-            raise ValueError("epsilon and delta must be non-negative")
+        """Spend privacy budget; reject non-finite or negative spends."""
+        _finite_nonnegative(epsilon, "epsilon")
+        _finite_nonnegative(delta, "delta")
         if self.spent_epsilon + epsilon > self.total_epsilon:
             return False
         if self.spent_delta + delta > self.total_delta:
@@ -453,9 +470,7 @@ def run_gaussian_query(value: float, sensitivity: float, epsilon: float,
     noisy = gaussian_mechanism(value, sensitivity, epsilon, delta)
     return {
         "mechanism": "gaussian",
-        "true_value": value,
         "noisy_value": noisy,
-        "noise_added": noisy - value,
         "sigma": sigma,
         "epsilon": epsilon,
         "delta": delta,
@@ -469,9 +484,7 @@ def run_laplace_query(value: float, sensitivity: float, epsilon: float) -> Dict[
     noisy = laplace_mechanism(value, sensitivity, epsilon)
     return {
         "mechanism": "laplace",
-        "true_value": value,
         "noisy_value": noisy,
-        "noise_added": noisy - value,
         "scale_b": b,
         "epsilon": epsilon,
         "sensitivity": sensitivity,

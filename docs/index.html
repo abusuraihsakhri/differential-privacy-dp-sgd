@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Differential Privacy Calculator</title>
+<style>
+:root {font: 16px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e8effb;background:#0b1020}
+*{box-sizing:border-box}body{margin:0;padding:clamp(18px,4vw,44px)}main{max-width:1100px;margin:auto}
+header{margin-bottom:28px}h1{font-size:clamp(1.7rem,3vw,2.4rem);letter-spacing:-.04em;line-height:1.18;margin:.5rem 0}
+h2{font-size:1.1rem;margin:0 0 1rem}p{color:#aab9d4;margin:.35rem 0 1rem;max-width:72ch}
+.kicker{font-size:.78rem;letter-spacing:.11em;text-transform:uppercase;color:#86b8ff;font-weight:700}
+.grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:20px}
+.panel{border:1px solid #283856;background:#141d32;border-radius:14px;padding:24px}
+label{display:block;font-size:.85rem;color:#c6d4ef;font-weight:600;margin:0 0 6px}
+input,select,textarea{display:block;width:100%;font:inherit;background:#0b1428;color:#f0f4ff;border:1px solid #435272;padding:10px 12px;border-radius:8px}
+textarea{min-height:98px;resize:vertical;font: .87rem/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid #a5caff;outline-offset:2px}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.full{grid-column:1/-1}.field{min-width:0}
+button{border:0;background:#4588ff;color:#061126;font:inherit;font-weight:750;padding:12px 16px;border-radius:9px;cursor:pointer;margin-top:16px;width:100%}
+button:hover:not(:disabled){background:#79a9ff}button:disabled{opacity:.55;cursor:not-allowed}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;color:#9ef2c1;font:.86rem/1.7 ui-monospace,SFMono-Regular,Consolas,monospace;min-height:190px;margin:0}
+.status{padding:8px 12px;border:1px solid #334663;background:#0b1428;border-radius:9px;display:inline-block;font-size:.85rem;color:#bed0ec;margin-top:5px}
+.note{border-left:3px solid #8aa9ce;padding:0 0 0 12px;margin:20px 0;font-size:.9rem}
+footer{font-size:.81rem;color:#aab9d4;margin:20px 0}a{color:#9ac2ff} [hidden]{display:none!important}
+@media(max-width:800px){.grid{grid-template-columns:1fr}.panel{padding:18px}}@media(max-width:420px){.fields{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="kicker">Client-side scientific calculator</div>
+<h1>Differential Privacy &amp; DP-SGD</h1>
+<p>Gaussian and Laplace noise, privacy composition, clipped-gradient aggregation and Rényi DP accounting. Runs the repository's Python numerical engine inside your browser using Pyodide.</p>
+<div class="status" id="runtime" role="status" aria-live="polite">Loading Python runtime…</div>
+</header>
+<div class="grid">
+<section class="panel">
+<h2>Configure calculation</h2>
+<form id="calculator">
+<div class="field" style="margin-bottom:16px">
+<label for="mode">Calculation</label>
+<select id="mode">
+<option value="mechanism">Noise mechanism</option>
+<option value="composition">Privacy composition</option>
+<option value="gradient">DP-SGD gradient step</option>
+<option value="accountant">Gaussian RDP accountant</option>
+</select>
+</div>
+<div data-mode="mechanism" class="fields">
+<div class="field full"><label for="mechanism">Mechanism</label><select id="mechanism"><option value="gaussian">Gaussian</option><option value="laplace">Laplace</option></select></div>
+<div class="field"><label for="value">Input statistic</label><input id="value" type="number" step="any" value="100" required></div>
+<div class="field"><label for="sensitivity">Query sensitivity</label><input id="sensitivity" type="number" min="0" step="any" value="1" required></div>
+<div class="field"><label for="epsilon">ε (epsilon)</label><input id="epsilon" type="number" min="0.000001" step="any" value="1" required></div>
+<div class="field" id="mechanism-delta"><label for="delta">δ (delta)</label><input id="delta" type="number" min="0.000000000001" max="0.999" step="any" value="0.00001" required></div>
+</div>
+<div data-mode="composition" class="fields" hidden>
+<div class="field full"><label for="composition-kind">Composition</label><select id="composition-kind"><option value="basic">Basic</option><option value="advanced">Advanced</option></select></div>
+<div class="field"><label for="comp-epsilon">ε per release</label><input id="comp-epsilon" type="number" min="0" step="any" value="0.1" required></div>
+<div class="field"><label for="comp-delta">δ per release</label><input id="comp-delta" type="number" min="0" max="0.999" step="any" value="0.000001" required></div>
+<div class="field"><label for="comp-steps">Releases</label><input id="comp-steps" type="number" min="0" max="10000000" step="1" value="10" required></div>
+<div class="field"><label for="delta-prime">δ′ for advanced</label><input id="delta-prime" type="number" min="0.000000000001" max="0.999" step="any" value="0.00001" required></div>
+</div>
+<div data-mode="gradient" class="fields" hidden>
+<div class="field full"><label for="gradients">Per-example gradients (JSON matrix)</label><textarea id="gradients" spellcheck="false" required>[[3, 4], [0, 2], [-2, 1]]</textarea></div>
+<div class="field"><label for="clip-norm">L2 clipping norm</label><input id="clip-norm" type="number" min="0.000001" step="any" value="1" required></div>
+<div class="field"><label for="noise-multiplier">Noise multiplier</label><input id="noise-multiplier" type="number" min="0.000001" step="any" value="1.5" required></div>
+</div>
+<div data-mode="accountant" class="fields" hidden>
+<div class="field"><label for="acct-sigma">Gaussian noise multiplier</label><input id="acct-sigma" type="number" min="0.000001" step="any" value="1.5" required></div>
+<div class="field"><label for="acct-steps">Training steps</label><input id="acct-steps" type="number" min="0" max="10000000" step="1" value="100" required></div>
+<div class="field full"><label for="acct-delta">Target δ</label><input id="acct-delta" type="number" min="0.000000000001" max="0.999" step="any" value="0.00001" required></div>
+</div>
+<button type="submit" id="calculate" disabled>Compute</button>
+</form>
+</section>
+<section class="panel">
+<h2>Result</h2>
+<pre id="result" role="status" aria-live="polite">Preparing local Python runtime.</pre>
+<p class="note">No input is sent to an application server. The Python runtime is fetched from a third-party CDN on first load. Results are educational; sensitivity, adjacency, numerical precision and composition assumptions require independent verification before using real sensitive data.</p>
+</section>
+</div>
+<footer>Gaussian accounting uses the full-batch bound, without subsampling amplification. Source: <a href="https://github.com/abusuraihsakhri/differential-privacy-dp-sgd">repository</a>. Use the API-backed console only on a trusted local host.</footer>
+</main>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let pyodide = null;
+function showActive() {
+    const mode = $("mode").value;
+    for (const panel of document.querySelectorAll("[data-mode]")) {
+        const visible = panel.dataset.mode === mode;
+        panel.hidden = !visible;
+        for (const control of panel.querySelectorAll("input,select,textarea")) control.disabled = !visible;
+    }
+    const isGaussian = $("mechanism").value === "gaussian";
+    $("mechanism-delta").hidden = !isGaussian;
+    $("delta").disabled = !isGaussian || mode !== "mechanism";
+}
+$("mode").addEventListener("change", showActive);
+$("mechanism").addEventListener("change", showActive);
+showActive();
+const num = id => Number($(id).value);
+$("calculator").addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!pyodide || !$("calculator").reportValidity()) return;
+    const mode = $("mode").value;
+    const input = { mode };
+    if (mode === "mechanism") Object.assign(input, {
+        mechanism:$("mechanism").value,value:num("value"),sensitivity:num("sensitivity"),
+        epsilon:num("epsilon"),delta:num("delta")
+    });
+    if (mode === "composition") Object.assign(input, {
+        kind:$("composition-kind").value,epsilon:num("comp-epsilon"),
+        delta:num("comp-delta"),steps:num("comp-steps"),delta_prime:num("delta-prime")
+    });
+    if (mode === "gradient") Object.assign(input, {
+        gradients:$("gradients").value,clip_norm:num("clip-norm"),
+        noise_multiplier:num("noise-multiplier")
+    });
+    if (mode === "accountant") Object.assign(input, {
+        sigma:num("acct-sigma"),steps:num("acct-steps"),delta:num("acct-delta")
+    });
+    $("calculate").disabled = true;
+    $("result").textContent = "Calculating…";
+    try {
+        pyodide.globals.set("payload_json", JSON.stringify(input));
+        const answer = await pyodide.runPythonAsync(`
+import json
+from engine import (run_gaussian_query, run_laplace_query, basic_composition,
+                    advanced_composition, dp_sgd_step, MomentsAccountant)
+d = json.loads(payload_json)
+if d["mode"] == "mechanism":
+    if d["mechanism"] == "gaussian":
+        out = run_gaussian_query(d["value"], d["sensitivity"], d["epsilon"], d["delta"])
+    else:
+        out = run_laplace_query(d["value"], d["sensitivity"], d["epsilon"])
+elif d["mode"] == "composition":
+    if d["kind"] == "basic":
+        out = {"epsilon_total": basic_composition(d["epsilon"], d["steps"]),
+               "delta_total": d["delta"] * d["steps"]}
+    else:
+        e, de = advanced_composition(d["epsilon"], d["delta"], d["steps"], d["delta_prime"])
+        out = {"epsilon_total": e, "delta_total": de}
+elif d["mode"] == "gradient":
+    gradients = json.loads(d["gradients"])
+    out = {"private_average_gradient": dp_sgd_step(gradients, d["clip_norm"], d["noise_multiplier"]),
+           "noise_multiplier": d["noise_multiplier"],
+           "clip_norm": d["clip_norm"],
+           "batch_size": len(gradients)}
+else:
+    accountant = MomentsAccountant(d["delta"])
+    accountant.accumulate(d["sigma"], d["steps"])
+    e, de = accountant.get_privacy_spent()
+    out = {"epsilon_upper_bound": e, "delta": de, "steps": d["steps"],
+           "sampling": "full batch; no amplification"}
+json.dumps(out, allow_nan=False)
+`);
+        $("result").textContent = JSON.stringify(JSON.parse(answer), null, 2);
+    } catch (err) {
+        $("result").textContent = "Calculation error: " + String(err.message || err);
+    } finally {
+        $("calculate").disabled = false;
+    }
+});
+(async () => {
+    try {
+        if (typeof loadPyodide !== "function") throw new Error("Pyodide script unavailable");
+        pyodide = await loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/" });
+        const response = await fetch("./engine.py", {cache:"no-cache"});
+        if (!response.ok) throw new Error("Could not load the Python engine (HTTP " + response.status + ")");
+        pyodide.FS.writeFile("/home/pyodide/engine.py", await response.text());
+        await pyodide.runPythonAsync("import sys; sys.path.insert(0, '/home/pyodide'); import engine");
+        $("runtime").textContent = "Python ready · client-side";
+        $("result").textContent = "Enter parameters and select Compute.";
+        $("calculate").disabled = false;
+    } catch (err) {
+        $("runtime").textContent = "Runtime unavailable";
+        $("result").textContent = "Unable to initialize browser Python: " + String(err.message || err);
+    }
+})();
+</script>
+</body>
+</html>
