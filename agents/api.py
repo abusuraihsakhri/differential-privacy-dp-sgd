@@ -2,8 +2,11 @@
 FastAPI REST API Server for Differential Privacy Dp Sgd.
 """
 from typing import Dict, Any, List
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from pathlib import Path
+import os
+import hmac
+from fastapi import FastAPI, HTTPException, Header
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from .base import AuditLogger, PHIGuard, SecurityException
 from .models import SystemTaskPayload, ConsensusDossier
@@ -16,6 +19,12 @@ app = FastAPI(
     description="Enterprise Distributed Component Platform (Clinical & Biomedical AI)",
     version="3.0.0-ENTERPRISE",
 )
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    """Serve the API-backed operations console for local/Docker installations."""
+    return FileResponse(Path(__file__).resolve().parent.parent / "web" / "index.html")
 
 
 class ChatRequest(BaseModel):
@@ -59,5 +68,11 @@ def api_chat(req: ChatRequest):
 
 
 @app.get("/api/audit/logs")
-def api_audit_logs():
+def api_audit_logs(authorization: str = Header(default="")):
+    # Audit metadata can disclose operational details; opt in explicitly.
+    token = os.getenv("AUDIT_API_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503, detail="Audit log API is disabled")
+    if not hmac.compare_digest(authorization, "Bearer " + token):
+        raise HTTPException(status_code=403, detail="Invalid audit API token")
     return {"audit_trail": AuditLogger.get_trail(), "verified": AuditLogger.verify_integrity()}

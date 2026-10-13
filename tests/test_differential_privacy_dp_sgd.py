@@ -64,10 +64,10 @@ class TestGaussianMechanism(unittest.TestCase):
         s2 = gaussian_noise_scale(2.0, 1.0, 1e-5)
         self.assertAlmostEqual(s2, 2.0 * s1, places=10)
 
-    def test_noise_scale_inversely_proportional_to_epsilon(self):
+    def test_noise_scale_inversely_proportional_to_epsilon_in_classical_range(self):
         s1 = gaussian_noise_scale(1.0, 1.0, 1e-5)
-        s2 = gaussian_noise_scale(1.0, 2.0, 1e-5)
-        self.assertAlmostEqual(s2, s1 / 2.0, places=10)
+        s2 = gaussian_noise_scale(1.0, 0.5, 1e-5)
+        self.assertAlmostEqual(s2, s1 * 2.0, places=10)
 
     def test_noise_scale_invalid_epsilon(self):
         with self.assertRaises(ValueError):
@@ -215,7 +215,7 @@ class TestRDPComposition(unittest.TestCase):
     def test_find_sigma_for_rdp(self):
         sigma = find_sigma_for_rdp(1.0, 1e-5, 100)
         self.assertGreater(sigma, 0)
-        alphas = [1.0 + x / 10.0 for x in range(1, 100)]
+        alphas = [1.0 + x / 10.0 for x in range(1, 100)] + list(range(11, 257))
         rdp_eps = rdp_composition_gaussian(sigma, 100, alphas)
         dp_eps = rdp_to_dp(rdp_eps, 1e-5)
         self.assertLessEqual(dp_eps, 1.0 + 0.2)
@@ -354,7 +354,8 @@ class TestRunQueries(unittest.TestCase):
         random.seed(42)
         result = run_gaussian_query(100.0, 1.0, 1.0, 1e-5)
         self.assertEqual(result["mechanism"], "gaussian")
-        self.assertEqual(result["true_value"], 100.0)
+        self.assertNotIn("true_value", result)
+        self.assertNotIn("noise_added", result)
         self.assertIn("noisy_value", result)
         self.assertIn("sigma", result)
 
@@ -362,7 +363,8 @@ class TestRunQueries(unittest.TestCase):
         random.seed(42)
         result = run_laplace_query(50.0, 1.0, 1.0)
         self.assertEqual(result["mechanism"], "laplace")
-        self.assertEqual(result["true_value"], 50.0)
+        self.assertNotIn("true_value", result)
+        self.assertNotIn("noise_added", result)
         self.assertIn("noisy_value", result)
         self.assertIn("scale_b", result)
 
