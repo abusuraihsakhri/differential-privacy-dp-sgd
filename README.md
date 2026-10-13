@@ -1,5 +1,7 @@
 # Differential Privacy and DP-SGD
 
+### [Open the Live Application →](https://abusuraihsakhri.github.io/differential-privacy-dp-sgd/)
+
 Reference Python utilities for Gaussian and Laplace mechanisms, privacy-budget composition, gradient clipping with additive noise, and Gaussian Rényi differential privacy (RDP) accounting. A separate FastAPI service provides a **generic threshold-audit demonstration**, not clinical decision support or a DP-trained model.
 
 ## Capabilities
