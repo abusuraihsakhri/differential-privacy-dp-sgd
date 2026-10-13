@@ -30,6 +30,20 @@ jobs:
         run: |
           python -m compileall -q agents diff_privacy_engine cli.py
           python -m pip check
+      - name: Validate browser JavaScript syntax and static assets
+        run: |
+          python - <<'PY'
+          import pathlib, re, subprocess, tempfile
+          for page in ("web/index.html", "docs/index.html"):
+              source = pathlib.Path(page).read_text()
+              scripts = re.findall(r'<script>(.*?)</script>', source, re.S | re.I)
+              assert scripts, page
+              with tempfile.NamedTemporaryFile(mode="w", suffix=".js") as test_script:
+                  test_script.write("\n".join(scripts))
+                  test_script.flush()
+                  subprocess.run(["node", "--check", test_script.name], check=True)
+          assert pathlib.Path("diff_privacy_engine/engine.py").exists()
+          PY
       - name: Run tests
         run: python -m pytest -q
       - name: CLI and API smoke tests
@@ -38,3 +52,21 @@ jobs:
           python -m diff_privacy_engine.cli audit --task-id CI-SMOKE
           python -c "from agents.api import app; assert any(route.path == '/' for route in app.routes)"
           python -c "from agents.base import AuditLogger; assert AuditLogger.verify_integrity()"
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build container
+        run: docker build -t dp-sgd-smoke .
+      - name: Test HTTP entrypoint and console
+        run: |
+          docker run -d --name dp-sgd-smoke -p 127.0.0.1:8091:8000 dp-sgd-smoke
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8091/health; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8091/ | grep -q "Operations Console"
+          curl -fsS http://127.0.0.1:8091/metrics | grep -q "dossiers_processed_total"
+          docker rm -f dp-sgd-smoke
