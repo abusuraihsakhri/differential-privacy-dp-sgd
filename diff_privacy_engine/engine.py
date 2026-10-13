@@ -193,7 +193,7 @@ def rdp_epsilon(alpha: float, sigma: float, sensitivity: float = 1.0) -> float:
         raise ValueError("alpha must be finite and > 1 for RDP")
     _finite_positive(sigma, "sigma")
     _finite_nonnegative(sensitivity, "sensitivity")
-    return (sensitivity ** 2) / (2.0 * sigma ** 2) * alpha
+    return 0.5 * (sensitivity / sigma) ** 2 * alpha
 
 
 def rdp_to_dp(rdp_epsilons: Dict[float, float], delta: float) -> float:
@@ -251,9 +251,13 @@ def find_sigma_for_rdp(target_epsilon: float, delta: float, k: int,
     if k < 0:
         raise ValueError("k must be non-negative")
     if alphas is None:
-        alphas = [1.0 + x / 10.0 for x in range(1, 100)]  # 1.1 to 10.0
-    if not alphas:
-        raise ValueError("alphas must not be empty")
+        alphas = [1.0 + x / 10.0 for x in range(1, 100)] + list(range(11, 257))
+    if not alphas or any(not math.isfinite(a) or a <= 1 for a in alphas):
+        raise ValueError("alphas must be finite and > 1")
+    # Conversion carries an irreducible ln(1/delta)/(alpha-1) penalty.
+    # Reject unattainable requests instead of overflowing while doubling sigma.
+    if min(math.log(1 / delta) / (alpha - 1) for alpha in alphas) >= target_epsilon:
+        raise ValueError("RDP orders too small for the requested epsilon and delta")
     lo, hi = 0.0, 1.0
     while rdp_to_dp(rdp_composition_gaussian(hi, k, alphas, sensitivity), delta) > target_epsilon:
         hi *= 2
@@ -319,7 +323,8 @@ def dp_sgd_noise(clip_norm: float, epsilon: float, delta: float, batch_size: int
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
     # Returns a dimensionless multiplier, not an absolute standard deviation.
-    # The step adds noise with stddev = multiplier * clip_norm / batch_size.
+    # The step adds noise with stddev = 2 * multiplier * clip_norm / batch_size
+    # under replacement adjacency for a fixed-size batch.
     return gaussian_noise_scale(1.0, epsilon, delta)
 
 
@@ -337,7 +342,9 @@ def dp_sgd_step(gradients: List[List[float]], clip_norm: float,
 
     # Add noise
     n = len(gradients)
-    sigma = noise_multiplier * clip_norm / n
+    # Fixed-size datasets under replacement adjacency have sensitivity 2*C/n.
+    # The multiplier is relative to that sensitivity (no subsampling credit).
+    sigma = 2.0 * noise_multiplier * clip_norm / n
     noisy = []
     for g in aggregated:
         u1 = _rng.random()

@@ -215,7 +215,7 @@ class TestRDPComposition(unittest.TestCase):
     def test_find_sigma_for_rdp(self):
         sigma = find_sigma_for_rdp(1.0, 1e-5, 100)
         self.assertGreater(sigma, 0)
-        alphas = [1.0 + x / 10.0 for x in range(1, 100)]
+        alphas = [1.0 + x / 10.0 for x in range(1, 100)] + list(range(11, 257))
         rdp_eps = rdp_composition_gaussian(sigma, 100, alphas)
         dp_eps = rdp_to_dp(rdp_eps, 1e-5)
         self.assertLessEqual(dp_eps, 1.0 + 0.2)
